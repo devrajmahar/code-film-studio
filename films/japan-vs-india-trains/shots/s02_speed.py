@@ -29,13 +29,13 @@ def render(frame_idx, n_frames, global_idx):
     sx = 380 + math.sin(t * 3.14) * 380
     rail_kit.draw_shinkansen(dt, sx + 360, split_y - 130, length=880, height=106, facing=1)
 
-    # Big glowing cyan speed readout on top
-    f_num = kit.get_font(94, bold=True)
+    # Big glowing cyan speed readout on top (properly sized so text never overflows!)
+    f_num = kit.get_font(78, bold=True)
     f_lbl = kit.get_font(28, bold=True)
     spd_j = int(kit.lerp(180, 320, kit.ease_out(min(1.0, t * 2.2))))
-    dt.rounded_rectangle((70, 250, 470, 420), radius=18, fill=(14, 28, 46), outline=(56, 210, 248), width=4)
-    dt.text((100, 262), f"{spd_j} km/h", font=f_num, fill=(92, 232, 255))
-    dt.text((104, 372), "JAPAN · SHINKANSEN", font=f_lbl, fill=(226, 240, 250))
+    dt.rounded_rectangle((68, 245, 530, 415), radius=18, fill=(14, 28, 46), outline=(56, 210, 248), width=4)
+    dt.text((100, 260), f"{spd_j} km/h", font=f_num, fill=(92, 232, 255))
+    dt.text((104, 360), "JAPAN · SHINKANSEN", font=f_lbl, fill=(226, 240, 250))
 
     # --- BOTTOM: Indian express crawling at 55 km/h ---
     bot = kit.make_sky_gradient((106, 86, 66), (168, 136, 98), (206, 174, 130), mid_pos=0.72)
@@ -51,11 +51,11 @@ def render(frame_idx, n_frames, global_idx):
     bob = math.sin(sec * 16) * 2.5
     rail_kit.draw_indian_express(db, 890 - t * 140, split_y + 465 + bob, length=860, height=126, facing=-1)
 
-    # Amber/red speed readout
+    # Amber/red speed readout (properly sized so text never overflows!)
     spd_i = int(kit.lerp(30, 55, kit.ease_out(min(1.0, t * 2.2))))
-    db.rounded_rectangle((70, split_y + 80, 470, split_y + 250), radius=18, fill=(42, 22, 20), outline=(228, 92, 68), width=4)
-    db.text((100, split_y + 92), f"{spd_i} km/h", font=f_num, fill=(252, 136, 102))
-    db.text((104, split_y + 202), "INDIA · AVG EXPRESS", font=f_lbl, fill=(244, 224, 210))
+    db.rounded_rectangle((68, split_y + 75, 530, split_y + 245), radius=18, fill=(42, 22, 20), outline=(228, 92, 68), width=4)
+    db.text((100, split_y + 90), f"{spd_i} km/h", font=f_num, fill=(252, 136, 102))
+    db.text((104, split_y + 190), "INDIA · AVG EXPRESS", font=f_lbl, fill=(244, 224, 210))
 
     comp = np.concatenate([np.array(top)[:split_y], np.array(bot)[split_y:]], axis=0)
     img = Image.fromarray(comp, mode="RGB")

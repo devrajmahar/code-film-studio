@@ -1,6 +1,7 @@
 /**
  * Generic zero-dependency, zero-hum procedural soundtrack & Foley engine.
- * Reads <film_dir>/build/audio_spec.json and renders <film_dir>/build/master.wav.
+ * Reads <film_dir>/build/audio_spec.json (authoritative dynamic timeline)
+ * and renders <film_dir>/build/master.wav with guaranteed ZERO voice overlap.
  */
 
 import fs from "node:fs";
@@ -15,7 +16,7 @@ if (!specPath || !fs.existsSync(specPath)) {
 const spec = JSON.parse(fs.readFileSync(specPath, "utf-8"));
 const SR = 48000;
 const DURATION = spec.duration || 36.0;
-const N = Math.floor(SR * DURATION);
+const N = Math.ceil(SR * DURATION);
 const beat = 60.0 / (spec.bpm || 120);
 
 const bgL = new Float32Array(N);
@@ -63,7 +64,7 @@ function addPiano(startSec, durSec, midi, gain = 0.11, pan = 0.0) {
   );
 }
 
-function addPluck(startSec, midi, gain = 0.08, pan = 0.0) {
+function addPluck(startSec, midi, gain = 0.075, pan = 0.0) {
   const f = midiToHz(midi);
   addStereo(
     startSec,
@@ -78,7 +79,7 @@ function addPluck(startSec, midi, gain = 0.08, pan = 0.0) {
   );
 }
 
-function addTick(startSec, gain = 0.045, pan = 0.0) {
+function addTick(startSec, gain = 0.04, pan = 0.0) {
   addStereo(
     startSec,
     0.045,
@@ -89,7 +90,7 @@ function addTick(startSec, gain = 0.045, pan = 0.0) {
 }
 
 const SFX_HANDLERS = {
-  horn: ({ t, dur = 0.18, f1 = 440, f2 = 540, gain = 0.038, pan = -0.3 }) => {
+  horn: ({ t, dur = 0.18, f1 = 440, f2 = 540, gain = 0.036, pan = -0.3 }) => {
     addStereo(
       t,
       dur,
@@ -101,7 +102,7 @@ const SFX_HANDLERS = {
       gain
     );
   },
-  tram_bell: ({ t, gain = 0.09, pan = 0.25 }) => {
+  tram_bell: ({ t, gain = 0.085, pan = 0.25 }) => {
     for (const off of [0.0, 0.2]) {
       addStereo(
         t + off,
@@ -112,7 +113,7 @@ const SFX_HANDLERS = {
       );
     }
   },
-  bird: ({ t, hz = 2800, gain = 0.036, pan = 0.4 }) => {
+  bird: ({ t, hz = 2800, gain = 0.034, pan = 0.4 }) => {
     addStereo(
       t,
       0.14,
@@ -121,7 +122,7 @@ const SFX_HANDLERS = {
       gain
     );
   },
-  rain: ({ t, dur = 4.0, gain = 0.05 }) => {
+  rain: ({ t, dur = 4.0, gain = 0.045 }) => {
     let prev = 0;
     addStereo(
       t,
@@ -137,7 +138,7 @@ const SFX_HANDLERS = {
       gain
     );
   },
-  whoosh: ({ t, dur = 0.85, gain = 0.075, pan = 0.0 }) => {
+  whoosh: ({ t, dur = 0.75, gain = 0.065, pan = 0.0 }) => {
     let prev = 0;
     addStereo(
       t,
@@ -153,10 +154,8 @@ const SFX_HANDLERS = {
       gain
     );
   },
-  station_chime: ({ t, gain = 0.09, pan = 0.0 }) => {
-    // Classic Japanese 3-note platform departure chime (E5 - G#5 - B5)
-    const notes = [76, 80, 83];
-    notes.forEach((m, idx) => {
+  station_chime: ({ t, gain = 0.08, pan = 0.0 }) => {
+    [76, 80, 83].forEach((m, idx) => {
       const f = midiToHz(m);
       addStereo(
         t + idx * 0.16,
@@ -169,27 +168,25 @@ const SFX_HANDLERS = {
   },
 };
 
-// Render chord progression + rhythmic groove
 for (const seg of spec.progression || []) {
   const [s0, s1, chord, holdOnly = false] = seg;
-  chord.forEach((m, idx) => addPiano(s0 + idx * 0.04, 1.8, m, 0.085, -0.25 + idx * 0.2));
+  chord.forEach((m, idx) => addPiano(s0 + idx * 0.04, 1.8, m, 0.08, -0.25 + idx * 0.2));
   if (holdOnly) continue;
   let step = 0;
   for (let t = s0; t < s1 - 0.12; t += beat * 0.5) {
     const m = chord[step % chord.length] + (step % 4 === 3 ? 12 : 0);
-    addPluck(t, m, 0.068, step % 2 === 0 ? -0.3 : 0.3);
-    if (step % 2 === 1) addTick(t, 0.042, step % 4 === 1 ? -0.15 : 0.15);
+    addPluck(t, m, 0.062, step % 2 === 0 ? -0.3 : 0.3);
+    if (step % 2 === 1) addTick(t, 0.036, step % 4 === 1 ? -0.15 : 0.15);
     step++;
   }
 }
 
-// Render spot SFX
 for (const cue of spec.sfx || []) {
   const fn = SFX_HANDLERS[cue.type];
   if (fn) fn(cue);
 }
 
-// 120 Hz high-pass filter on BG bus (guarantees zero low-frequency hum)
+// 120 Hz high-pass filter on BG bus (zero hum)
 const hpAlpha = 0.984;
 let xL = 0, yL = 0, xR = 0, yR = 0;
 for (let i = 0; i < N; i++) {
@@ -214,16 +211,24 @@ function readWavMono16(filepath) {
   return new Float32Array(0);
 }
 
+// Place every shot's narration strictly inside its own non-overlapping window
 const voiceBus = new Float32Array(N);
 const duckEnv = new Float32Array(N);
-for (const item of spec.narration || []) {
+const shots = spec.shots || spec.narration || [];
+let lastVoiceEndSample = 0;
+
+for (const item of shots) {
   if (!fs.existsSync(item.wav)) continue;
   const samples = readWavMono16(item.wav);
-  const i0 = Math.floor(item.start * SR);
-  for (let i = 0; i < samples.length && i0 + i < N; i++) {
-    voiceBus[i0 + i] += samples[i];
-    duckEnv[i0 + i] = Math.max(duckEnv[i0 + i], Math.abs(samples[i]));
+  const startSec = item.voice_start !== undefined ? item.voice_start : item.start;
+  const i0 = Math.max(lastVoiceEndSample + Math.floor(0.25 * SR), Math.floor(startSec * SR));
+  const maxEnd = item.duration ? Math.min(N, Math.floor((item.start + item.duration - 0.08) * SR)) : N;
+  const count = Math.min(samples.length, Math.max(0, maxEnd - i0));
+  for (let i = 0; i < count; i++) {
+    voiceBus[i0 + i] = samples[i]; // assign (never overlap/sum two voices!)
+    duckEnv[i0 + i] = Math.abs(samples[i]);
   }
+  lastVoiceEndSample = i0 + count;
 }
 
 const L = new Float32Array(N);
@@ -234,12 +239,12 @@ const fadeOut = Math.floor(0.75 * SR);
 for (let i = 0; i < N; i++) {
   const tgt = duckEnv[i] > 0.015 ? 1.0 : 0.0;
   env += (tgt > env ? 0.003 : 0.00025) * (tgt - env);
-  const bgGain = 1.0 - 0.58 * env;
+  const bgGain = 1.0 - 0.62 * env;
   let g = 1.0;
   if (i < fadeIn) g *= i / fadeIn;
   if (i > N - fadeOut) g *= (N - i) / fadeOut;
-  L[i] = Math.tanh((bgL[i] * bgGain + voiceBus[i] * 0.96) * g * 1.12);
-  R[i] = Math.tanh((bgR[i] * bgGain + voiceBus[i] * 0.96) * g * 1.12);
+  L[i] = Math.tanh((bgL[i] * bgGain + voiceBus[i] * 0.96) * g * 1.10);
+  R[i] = Math.tanh((bgR[i] * bgGain + voiceBus[i] * 0.96) * g * 1.10);
 }
 
 const outPath = path.join(path.dirname(specPath), "master.wav");
@@ -266,4 +271,4 @@ for (let i = 0; i < N; i++) {
   p += 4;
 }
 fs.writeFileSync(outPath, wav);
-console.log(`Wrote master audio: ${outPath} (${DURATION.toFixed(1)}s, zero-hum)`);
+console.log(`Wrote master audio: ${outPath} (${DURATION.toFixed(2)}s, zero-hum, ZERO voice overlap)`);

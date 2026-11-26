@@ -1,8 +1,9 @@
-"""Unified CLI for Code Film Studio — build stills, audio, frames & MP4 for any film in films/<slug>/."""
+"""Unified CLI for Code Film Studio — audio-driven frame-accurate timeline, stills, render & MP4."""
 
 import argparse
 import glob
 import importlib
+import json
 import os
 import subprocess
 import sys
@@ -17,6 +18,22 @@ def _setup_paths(film_dir):
     for p in (film_dir, ENGINE_DIR, STUDIO_ROOT):
         if p not in sys.path:
             sys.path.insert(0, p)
+
+
+def _load_shot_schedule(film_dir, film):
+    """Use authoritative audio-driven shot timings from build/audio_spec.json when available."""
+    spec_path = os.path.join(film_dir, "build", "audio_spec.json")
+    if os.path.exists(spec_path):
+        with open(spec_path, "r", encoding="utf-8") as f:
+            spec = json.load(f)
+        if spec.get("shots"):
+            sched = [(s["id"], s["module"], int(s["start_frame"]), int(s["n_frames"])) for s in spec["shots"]]
+            return sched, int(spec["total_frames"])
+    sched = []
+    for shot in film.SHOTS:
+        sf, nf = film.shot_frame_range(shot)
+        sched.append((shot[0], shot[1], sf, nf))
+    return sched, int(film.TOTAL_FRAMES)
 
 
 def _render_chunk(args):
@@ -41,11 +58,10 @@ def build_audio(film_dir):
 def render_stills(film_dir):
     _setup_paths(film_dir)
     film = importlib.import_module("film")
+    sched, _total = _load_shot_schedule(film_dir, film)
     stills_dir = os.path.join(film_dir, "build", "stills")
     os.makedirs(stills_dir, exist_ok=True)
-    for shot in film.SHOTS:
-        shot_id, mod_name = shot[0], shot[1]
-        start_f, n_frames = film.shot_frame_range(shot)
+    for shot_id, mod_name, start_f, n_frames in sched:
         mod = importlib.import_module(mod_name)
         mid = n_frames // 2
         img = mod.render(mid, n_frames, start_f + mid)
@@ -57,6 +73,7 @@ def render_stills(film_dir):
 def render_frames(film_dir, jobs):
     _setup_paths(film_dir)
     film = importlib.import_module("film")
+    sched, total = _load_shot_schedule(film_dir, film)
     frames_dir = os.path.join(film_dir, "build", "frames")
     os.makedirs(frames_dir, exist_ok=True)
     for old in glob.glob(os.path.join(frames_dir, "f_*.png")):
@@ -64,13 +81,11 @@ def render_frames(film_dir, jobs):
 
     t0 = time.time()
     tasks = []
-    for shot in film.SHOTS:
-        mod_name = shot[1]
-        start_f, n_frames = film.shot_frame_range(shot)
+    for _shot_id, mod_name, start_f, n_frames in sched:
         for c0 in range(0, n_frames, 30):
             tasks.append((film_dir, mod_name, start_f, n_frames, list(range(c0, min(n_frames, c0 + 30))), frames_dir))
 
-    done, total = 0, film.TOTAL_FRAMES
+    done = 0
     print(f"Rendering {total} frames ({film.WIDTH}x{film.HEIGHT} @ {film.FPS}fps) using {jobs} workers...")
     with ProcessPoolExecutor(max_workers=jobs) as ex:
         for count in ex.map(_render_chunk, tasks):
@@ -108,7 +123,7 @@ def assemble(film_dir, slug):
 
 def main():
     ap = argparse.ArgumentParser(description="Code Film Studio CLI")
-    ap.add_argument("film", help="Film folder name inside films/ (e.g. india-vs-europe)")
+    ap.add_argument("film", help="Film folder name inside films/ (e.g. japan-vs-india-trains)")
     ap.add_argument("--stills", action="store_true", help="Render 1 mid-frame still per shot")
     ap.add_argument("--audio", action="store_true", help="Generate narration & procedural audio mix")
     ap.add_argument("--render", action="store_true", help="Render all video frames")
@@ -123,10 +138,10 @@ def main():
         sys.exit(1)
 
     run_all = args.all or not (args.stills or args.audio or args.render or args.assemble)
-    if args.stills:
-        render_stills(film_dir)
     if args.audio or run_all:
         build_audio(film_dir)
+    if args.stills:
+        render_stills(film_dir)
     if args.render or run_all:
         render_frames(film_dir, args.jobs)
     if args.assemble or run_all:

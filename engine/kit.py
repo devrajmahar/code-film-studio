@@ -546,49 +546,88 @@ def draw_bird(draw, x, y, size=12, phase=0.0, color=(34, 46, 62), width=2):
 # ---------------------------------------------------------------------------
 
 def draw_shorts_badge(img, text, y=148, accent=TRAM_RED, bg=(18, 22, 28), alpha=1.0):
-    """Top-safe editorial pill badge centered for 9:16 Shorts."""
+    """Top-safe editorial pill badge centered for 9:16 Shorts with exact vertical centering & auto-fit."""
     if alpha <= 0.02:
         return img
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(overlay)
-    font = get_font(28, bold=True)
+    size = 28
+    font = get_font(size, bold=True)
     bb = d.textbbox((0, 0), text, font=font)
+    while (bb[2] - bb[0]) > (W - 140) and size > 18:
+        size -= 2
+        font = get_font(size, bold=True)
+        bb = d.textbbox((0, 0), text, font=font)
+
     tw, th = bb[2] - bb[0], bb[3] - bb[1]
-    px, py = 28, 12
-    x0 = W / 2 - tw / 2 - px
+    px, py = 30, 14
+    box_w = tw + px * 2
+    box_h = th + py * 2
+    x0 = (W - box_w) / 2
     y0 = y
-    a = int(235 * clamp(alpha))
-    d.rounded_rectangle((x0, y0, x0 + tw + px * 2, y0 + th + py * 2), radius=12, fill=(*bg, int(205 * clamp(alpha))), outline=(*accent, a), width=3)
-    d.text((W / 2 - tw / 2, y0 + py - 3), text, font=font, fill=(250, 248, 242, a))
+    a = int(240 * clamp(alpha))
+    d.rounded_rectangle(
+        (x0, y0, x0 + box_w, y0 + box_h),
+        radius=14,
+        fill=(*bg, int(215 * clamp(alpha))),
+        outline=(*accent, a),
+        width=3,
+    )
+    tx = x0 + px - bb[0]
+    ty = y0 + py - bb[1]
+    d.text((tx, ty), text, font=font, fill=(250, 248, 242, a))
     return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
 
 def draw_shorts_caption(img, lines, t_shot=0.5, highlight_accent=(252, 206, 86)):
-    """Bold, crisp, YouTube-Shorts-safe 2-line kinetic captions in lower-safe zone (y ~ 1420-1560)."""
+    """Clean, non-overlapping 2-line kinetic caption card in Shorts-safe zone (auto-fits width)."""
     if not lines:
         return img
     pop = ease_out(min(1.0, t_shot * 6.5))
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(overlay)
-    font = get_font(50, bold=True)
-    y_base = 1430 + int((1.0 - pop) * 24)
+
+    # Auto-fit font size so widest line always fits comfortably with >= 70px margin on each side
+    size = 46
+    font = get_font(size, bold=True)
+    max_allowed = W - 160
+    while size > 28:
+        widths = [d.textbbox((0, 0), ln, font=font)[2] - d.textbbox((0, 0), ln, font=font)[0] for ln in lines]
+        if max(widths) <= max_allowed:
+            break
+        size -= 2
+        font = get_font(size, bold=True)
+
+    metrics = [d.textbbox((0, 0), ln, font=font) for ln in lines]
+    line_heights = [bb[3] - bb[1] for bb in metrics]
+    line_widths = [bb[2] - bb[0] for bb in metrics]
+    line_gap = 20
+    pad_x, pad_y = 36, 22
+
+    content_h = sum(line_heights) + line_gap * (len(lines) - 1)
+    card_w = max(line_widths) + pad_x * 2
+    card_h = content_h + pad_y * 2
+    card_x = (W - card_w) / 2
+    card_y = 1435 + int((1.0 - pop) * 20)
     a = int(255 * pop)
 
-    for idx, line in enumerate(lines):
-        bb = d.textbbox((0, 0), line, font=font)
-        tw, th = bb[2] - bb[0], bb[3] - bb[1]
-        tx = W / 2 - tw / 2
-        ty = y_base + idx * 74
-        # Soft dark backing pill for 100% readability on any mobile screen
-        d.rounded_rectangle(
-            (tx - 24, ty - 10, tx + tw + 24, ty + th + 16),
-            radius=14,
-            fill=(12, 15, 20, int(185 * pop)),
-        )
-        # Drop shadow + main text (line 2 accented in warm gold)
-        col = highlight_accent if idx == 1 else (252, 250, 246)
-        d.text((tx + 2, ty + 3), line, font=font, fill=(0, 0, 0, int(200 * pop)))
-        d.text((tx, ty), line, font=font, fill=(*col, a))
+    # Single clean unified dark card behind all caption lines (zero pill overlap!)
+    d.rounded_rectangle(
+        (card_x, card_y, card_x + card_w, card_y + card_h),
+        radius=18,
+        fill=(12, 15, 20, int(205 * pop)),
+        outline=(255, 255, 255, int(35 * pop)),
+        width=2,
+    )
+
+    cur_y = card_y + pad_y
+    for idx, (ln, bb, lw, lh) in enumerate(zip(lines, metrics, line_widths, line_heights)):
+        tx = (W - lw) / 2 - bb[0]
+        ty = cur_y - bb[1]
+        col = highlight_accent if idx == len(lines) - 1 and len(lines) > 1 else (252, 250, 246)
+        d.text((tx + 2, ty + 2), ln, font=font, fill=(0, 0, 0, int(190 * pop)))
+        d.text((tx, ty), ln, font=font, fill=(*col, a))
+        cur_y += lh + line_gap
 
     return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
