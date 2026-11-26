@@ -137,6 +137,36 @@ const SFX_HANDLERS = {
       gain
     );
   },
+  whoosh: ({ t, dur = 0.85, gain = 0.075, pan = 0.0 }) => {
+    let prev = 0;
+    addStereo(
+      t,
+      dur,
+      (x, u) => {
+        const env = Math.sin(Math.PI * u) ** 1.5;
+        const s = randSigned();
+        const hp = s - prev * 0.72;
+        prev = s;
+        return hp * 0.5 * env;
+      },
+      pan,
+      gain
+    );
+  },
+  station_chime: ({ t, gain = 0.09, pan = 0.0 }) => {
+    // Classic Japanese 3-note platform departure chime (E5 - G#5 - B5)
+    const notes = [76, 80, 83];
+    notes.forEach((m, idx) => {
+      const f = midiToHz(m);
+      addStereo(
+        t + idx * 0.16,
+        0.55,
+        (x) => (0.75 * Math.sin(2 * Math.PI * f * x) + 0.25 * Math.sin(4 * Math.PI * f * x) * Math.exp(-x * 5)) * Math.min(1, x / 0.004) * Math.exp(-x * 5.0),
+        pan,
+        gain
+      );
+    });
+  },
 };
 
 // Render chord progression + rhythmic groove
