@@ -63,8 +63,8 @@ async def generate_for_film(film_dir):
     out_dir = os.path.join(film_dir, "build", "voice")
     os.makedirs(out_dir, exist_ok=True)
 
-    lead_in = 0.15   # clean visual beat before narrator speaks
-    tail_pad = 0.35  # clean pause AFTER narrator finishes before cutting to next shot
+    lead_in = 0.06   # instant Shorts flow — no sluggish pause on cut
+    tail_pad = 0.14  # crisp 0.20s total breath between sentences (zero overlap, zero dead air)
 
     shots_timeline = []
     cur_frame = 0
@@ -85,8 +85,8 @@ async def generate_for_film(film_dir):
             convert_clean_48k_mono(raw_wav, wav_path)
 
         clip_dur = wav_duration(wav_path)
-        # Snap shot duration UP to exact frames so voice finishes completely with >=0.42s breathing room
-        min_sec = 2.6 if idx == len(film.SHOTS) - 1 else 2.8
+        # Snap shot duration UP to exact frames (snappy Shorts pacing, zero overlap)
+        min_sec = 2.0 if idx == len(film.SHOTS) - 1 else 2.2
         raw_shot_sec = max(min_sec, lead_in + clip_dur + tail_pad)
         n_frames = int(math.ceil(raw_shot_sec * fps))
         shot_dur = n_frames / float(fps)
